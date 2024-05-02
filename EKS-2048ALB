@@ -1,0 +1,125 @@
+ eksctl create cluster --name=cluster-1 --version=1.27 --node-type=t2.medium --nodes=3 --region=us-east-1 --zones=us-east-1a,us-east-1b
+ 
+ export cluster_name=cluster-1
+ aws eks --region us-east-1 update-kubeconfig --name=$cluster_name
+ oidc_id=$(aws eks describe-cluster --name $cluster_name --query "cluster.identity.oidc.issuer" --output text | cut -d '/' -f 5) 
+
+# aws iam list-open-id-connect-providers | grep $oidc_id | cut -d "/" -f4
+  eksctl utils associate-iam-oidc-provider --cluster $cluster_name --approve
+# aws iam list-open-id-connect-providers | grep $oidc_id | cut -d "/" -f4
+ 
+#Create deployment,namespace,service,ingress
+# kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/examples/2048/2048_full.yaml
+ 
+  kubectl apply -f dep.yml
+ 
+ IAM POLICY, ROLE, SERVICE ACCOUNT BINDING
+ ##curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
+ aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document file://elastic-loadbalancer.json      
+    
+ eksctl create iamserviceaccount \
+  --cluster=cluster-1 \
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --attach-policy-arn=arn:aws:iam::631231558475:policy/AWSLoadBalancerControllerIAMPolicy \            #accountid#
+  --approve
+  
+ #download helm into local 
+ helm repo add eks https://aws.github.io/eks-charts
+ helm repo update eks
+ 
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system \
+  --set clusterName=cluster-1 \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --set region=us-east-1 \
+  --set vpcId=vpc-04c6fdbe1f2dd406c
+
+
+  
+  kubectl get deployment -n kube-system aws-load-balancer-controller
+  
+ --------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+  
+  
+  https://blog.cloudtechner.com/setting-up-efs-as-persistent-volume-for-aws-eks-d16f5f46951e
+  
+  
+  
+  curl -o iam-policy-example.json https://raw.githubusercontent.com/kubernetes-sigs/aws-efs-csi-driver/v1.2.0/docs/iam-policy-example.json
+  
+  aws iam create-policy \
+    --policy-name AmazonEKS_EFS_CSI_Driver_Policy \
+    --policy-document file://iam-policy-example.json
+    
+    
+  aws eks describe-cluster --name your_cluster_name --query "cluster.identity.oidc.issuer" --output text
+  
+				  cat <<EOF > trust-policy.json
+				{
+				  "Version": "2012-10-17",
+				  "Statement": [
+				    {
+				      "Effect": "Allow",
+				      "Principal": {
+					"Federated": "arn:aws:iam::YOUR_AWS_ACCOUNT_ID:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/<XXXXXXXXXX45D83924220DC4815XXXXX>"
+				      },
+				      "Action": "sts:AssumeRoleWithWebIdentity",
+				      "Condition": {
+					"StringEquals": {
+					  "oidc.eks.us-east-1.amazonaws.com/id/<XXXXXXXXXX45D83924220DC4815XXXXX>:sub": "system:serviceaccount:kube-system:efs-csi-controller-sa"
+					}
+				      }
+				    }
+				  ]
+				}
+				EOF
+
+
+
+aws iam create-role \
+  --role-name AmazonEKS_EFS_CSI_DriverRole \
+  --assume-role-policy-document file://"trust-policy.json"
+  
+  
+  aws iam attach-role-policy \
+  --policy-arn arn:aws:iam::<AWS_ACCOUNT_ID>:policy/AmazonEKS_EFS_CSI_Driver_Policy \
+  --role-name AmazonEKS_EFS_CSI_DriverRole
+  
+  
+  
+  kubectl kustomize "github.com/kubernetes-sigs/aws-efs-csi-driver/deploy/kubernetes/overlays/stable/?ref=release-1.3" > public-ecr-driver.yaml
+  
+  ##add annotations in above yaml file, its serviceAccount
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<accountid>:role/AmazonEKS_EFS_CSI_DriverRole
+    
+  kubectl apply -f public-ecr-driver.yaml
+  
+  
+  aws ec2 describe-vpcs --vpc-ids YOUR_VPC_ID --query "Vpcs[].CidrBlock" --output text
+  aws ec2 create-security-group --description efs-test-sg --group-name efs-sg --vpc-id YOUR_VPC_ID
+  aws ec2 authorize-security-group-ingress --group-id sg-xxx --protocol tcp --port 2049 --cidr YOUR_VPC_CIDR
+  
+  aws efs create-file-system --creation-token eks-efs
+  aws efs create-mount-target --file-system-id FileSystemId --subnet-id SubnetID --security-group sg-xxx   ###run for each subnetid
+    
+      
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
